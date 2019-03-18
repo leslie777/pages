@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>ElasticSearch</title>
+    <meta charset="utf-8">
+    <style>
+      @import url(https://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
+      @import url(https://fonts.googleapis.com/css?family=Droid+Serif:400,700,400italic);
+      @import url(https://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
+
+      body { font-family: 'Droid Serif'; }
+      h1, h2, h3 {
+        font-family: 'Yanone Kaffeesatz';
+        font-weight: normal;
+      }
+      .remark-code, .remark-inline-code { font-family: 'Ubuntu Mono'; }
+    </style>
+  </head>
+  <body>
+    <textarea id="source">
+
+class: center, middle
+# ElasticSearch
+
+---
+
+# 目录
+
+1. 全文检索基础知识
+2. ES简介
+3. ES组成及工作原理解析
+4. ES搜索与集群管理
+5. 经验分享
+
+---
+## 1. 全文检索基础
+---
+class: center
+### 什么是全文检索？
+
+---
+![es例子](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/%E6%90%9C%E7%B4%A2%E4%BE%8B%E5%AD%90.png)
+---
+
+![淘宝检索架构](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/%E6%B7%98%E5%AE%9D%E6%A3%80%E7%B4%A2%E6%9E%B6%E6%9E%841.png)
+---
+
+  全文数据: 数据量大的非结构化数据（不定长无固定格式，邮件文章word）
+
+ 1. 特性：
+    - 主要是基于文本内容的查询
+    - 多字段查询，个字段权重不同
+    - 支持“模糊匹配”  like  近似词  词性
+    - 一般需要人为干预某些搜索条目的权重  百度竞价排名
+    - 两个主要衡量指标：
+        - 查全率： 查询出所有相关的内容
+        - 查准率： 优先最相关的文档
+ 2. 方式：
+    -  顺序扫描法：全文检索无索引： windows文件搜索，Linux下的grep。。大量文件很慢
+    -  创建索引: 如倒排索引（反向索引） 将文章中关键字段抽取出来（分词器），作为索引 （index） （词典），保留到各个原文档（行）(Document)的链接链表（倒排表）
+---
+
+倒排索引  keyword-> list<doc>
+
+![倒排索引1](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/%E5%80%92%E6%8E%92%E7%B4%A2%E5%BC%951.png)
+
+多字段查询。合并链表
+
+![倒排索引2](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/%E5%80%92%E6%8E%92%E7%B4%A2%E5%BC%952.png)
+---
+
+## lucene 基本概念
+![lucene](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/lucene.png)
+---
+
+lucene 基本概念
+ - 基于Java语言的全文检索和搜索框架
+ - 索引(Index)：
+    - 一个目录一个索引，在Lucene中一个索引是放在一个文件夹中的。
+ - 段(Segment)：
+    - 一个索引可以包含多个段，段与段之间是独立的，添加新文档可以生成新的段，不同的段可以合并。
+ - 文档(Document)：
+    - 文档是我们建索引的基本单位，不同的文档是保存在不同的段中的，一个段可以包含多篇文档。
+    - 新添加的文档是单独保存在一个新生成的段中，随着段的合并，不同的文档合并到同一个段中。
+ - 域(Field)：
+    - 一篇文档包含不同类型的信息，可以分开索引，比如标题，时间，正文，作者等，都可以保存在不同的域里。
+    - 不同域的索引方式可以不同。
+ - 词(Term)：
+    - 词是索引的最小单位，是经过词法分析和语言处理后的字符串。
+ - 分词器(Analyzer)：
+    - 用于对原始内容做分词、大小写转换等处理，最后生成多个term
+---
+
+## lucene-Doc打分公式
+
+
+<img src="http://chart.googleapis.com/chart?cht=tx&chl= score(q,d) = coord(q,d) * queryNorm(q) * \sum\limits_{t\ in\ q}(tf(t\ in\ d)*idf(t)^2*t.getBoost()*norm(td)) " style="border:none;">
+
+[打分公式解析](https://my.oschina.net/momohuang/blog/145003)
+
+影响score 的因素：
+ - doc种包含的term的个数：包含term多，score搞
+ - field的权重设置 (标题（高） 正文（低）)
+ - term出现频率： 出现频率低的trem对应的source高（大数据（低） hadoop(高))
+ - fieldNorm： 短小的字段scoue高
+ - term出现的位置： 越靠前的doc得分越高
+ - doc的权重（人为干预）
+---
+
+## lucene的索引结构
+
+![索引结构1](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/索引结构1.png)
+---
+
+Lucene的索引结构中，即保存了正向信息，也保存了反向信息。
+
+所谓正向信息：
+
+- 按层次保存了从索引，一直到词的包含关系：索引(Index) –> 段(segment) –> 文档(Document) –> 域(Field) –> 词(Term)
+- 既然是层次结构，则每个层次都保存了本层次的信息以及下一层次的元信息，也即属性信息，比如一本介绍中国地理的书，应该首先介绍中国地理的概况，以及中国包含多少个省，每个省介绍本省的基本概况及包含多少个市，每个市介绍本市的基本概况及包含多少个县，每个县具体介绍每个县的具体情况。
+- 如上图，包含正向信息的文件有：
+    - segments_N保存了此索引包含多少个段，每个段包含多少篇文档。
+    - XXX.fnm保存了此段包含了多少个域，每个域的名称及索引方式。
+    - XXX.fdx，XXX.fdt保存了此段包含的所有文档，每篇文档包含了多少域，每个域保存了那些信息。
+    - XXX.tvx，XXX.tvd，XXX.tvf保存了此段包含多少文档，每篇文档包含了多少域，每个域包含了多少词，每个词的字符串，位置等信息。
+---
+
+所谓反向信息：
+
+ - 保存了词典到倒排表的映射：词(Term) –> 文档(Document)
+ - 如上图，包含反向信息的文件有：
+    - XXX.tis，XXX.tii保存了词典(Term Dictionary)，也即此段包含的所有的词按字典顺序的排序。
+    - XXX.frq保存了倒排表，也即包含每个词的文档ID列表。
+    - XXX.prx保存了倒排表中每个词在包含此词的文档中的位置。
+---
+
+## 使用lucene开发
+
+###  建立索引
+```code
+public staic void main (String[] args) {
+    Directory dir = FSDirectory.open(Paths.get(indexPath));
+    Analyzer analyzer = new StandardAnalyzer();
+    IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
+    iwc.setOpenMde(OpenMode.CREATE);
+    IndexWriter writer = new IndexWriter(dir,iwc);
+    Path file = "";
+    InputStream stream = Files.newInputStream(file);
+    Document doc = new Document();
+    doc.add(new StringField("path"),file.toString(), Field.Store.YES));
+    doc.add(new LongPoint("modified", lastModified));
+    doc.add(new TextField("contents"), new BufferedReader(
+            new InputStreamReader(stream, StandardCharsets.UTF_8))));
+    writer.addDocument(doc);
+    writer.close;
+}
+```
+---
+
+### 查询
+```code
+public staic void main (String[] args) {
+    Directory dir = FSDirectory.open(Paths.get(indexPath));
+    IndexReader reader = DirectoryReader.open(dir));
+	IndexSearcher indexSearcher = new IndexSearcher(reader);
+	Analyzer analyzer = new StandardAnalyzer();
+	// 查询方式 多字段
+	MutiFieldQueryParser queryParser = new MutiFieldQueryParser(
+	       Version.LUCENE_41,
+	       new String[]{"path","contents", "modified"},
+	       new StandardAnalyzer(Version.LUCENE_41));
+	Query query = queryParser.parse("here goes your query");
+	TopDocs hits = indexSearcher.search(query, 10);
+	for(ScoreDoc scoreDoc : hits.scoreDocs) {
+		Document doc = indexSearcher.doc(scoreDoc.doc);
+		System.out.println(doc.get("path"));
+	}
+	reader.close();
+}
+```
+---
+
+## Lucene的局限性
+
+ - 仅提供了一个开发工具包，索引和搜索需要自己编写代码
+ - 如果要构建复杂的查询，开发成本高
+ - 不提供分布式支持，无法应付大数据量下的索引和查询
+---
+
+## ElasticSearch是什么？
+
+ElasticSearch是一个构建于Lucene之上，提供**分布式，动态扩展，高可用**功能，所有操作都可基于**RESTFUL API**的开源的**近实时全文检索系统**
+
+![用户](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/用户.png)
+---
+
+## 版本
+
+![版本](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/版本.png)
+
+5.0解决之前ELK 版本号不统一问题
+---
+
+## 安装
+
+ 1. 安装JDK1.8
+ 2. 下载安装包 [www.elastic.co/downloads](https://www.elastic.co/downloads/)
+ 3. 解压
+ 4. 修改配置
+ 5. 运行： $ES_HOME/bin/elasticsearch
+ 6. 查看： http://localhost:9200/?pretty
+---
+
+## 安装 配置修改
+
+![安装配置修改](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/安装配置修改.png)
+---
+### 创建文档
+- 127.0.0.1:9200/index/indextype/id
+- 模拟谷歌搜索 “Big Data”
+---
+
+## ES组成及工作原理解析
+ - Cluster: ES服务集群，对外提供服务的整体
+ - Node： 集群种的单个节点，一般一台服务器部署一个节点，有如下两种节点：
+    - master node ： 负责维护集群信息，比如节点网络结构，节点的增删
+    - date node : 负责提供索引和搜索服务
+ - Shard： 索引数据切片。每个shard对应Lucene中的索引，有两种类型：
+    - primary shard: 数据主分片， 主分片数决定了整个索引会被切分成多少份。在建立索引的时候就需要指定
+    - replicate shard： 主分片副本， 副本分片数决定了一个主分片有多少份拷贝。可以动态调整
+    - Index： 索引。类似数据库中database的概念，表示某类相关的数据，如用户、产品等
+    - type：索引类型，类似数据库中表的概念。在创建Index type一般会同时定义mapping，通过mapping定义type中的数据结构
+    - Document： 索引读写的单元
+---
+
+## 节点组成
+图
+---
+
+## Doc读写过程
+前提：
+ - Doc读写： 在读写一个doc的时候，根据hash(routing)%number_of_primary_shards公式计算当前doc所属的shard，其中routing默认时doc的id值，也可以在创建和读取时动态指定
+ - 那个node都掌握了集群中节点的完整信息，都可以相应索引的读写操作
+ - 每个Doc都有一个version字段， 创建时会设置一个初始值，后续每次修改都会增加版本的值
+---
+
+Doc读写过程--写
+![Doc读写过程-写](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/Doc读写过程-写.png)
+
+ - 客户端给Node1发送更新请求。（增删改只能primaryshards处理）
+ - 通过路由计算转发请求到主分片所在节点Node3。
+ - Node3从主分片检索出文档，修改_source字段的JSON，然后在主分片上重建索引。如果有其他进程修改了文档，它以retry_on_conflict设置的次数重复步骤3，都未成功则放弃。
+ - 如果	Node3成功更新文档，它同时转发文档的新版本到Node1和Node2上的复制节点以重建索引。当所有复制节点报告成功，Node3返回成功给请求节点，然后返回给客户端。
+---
+
+Doc读写过程-读
+![Doc读写过程-读](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/Doc读写过程-读.png)
+
+ - 客户端发起请求
+ - 路由计算查询数据在那个分片上
+ - 负载均衡请求一个可用分片
+ - 返回结果
+---
+
+Doc搜索过程
+
+![Doc搜索过程](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/Doc搜索过程.png)
+ - 客户端发起搜索请求
+ - node3接受到请求向所有分片发起查询请求
+ - 每个分片进行查询，各自返回结果给node3
+ - node3进行汇总。选择，limit
+ - 返回客户端
+---
+
+### Shard内部细节
+![Shard内部细节](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/Shard内部细节.png)
+- 包含磁盘存储的luncene文件以及额外的translog
+- 使用内存缓存提高速度
+---
+
+### Shard内部细节
+
+ - in-memory-buffer:索取的更改显示缓存到内存中，此时更改还不能被查询到
+ - refresh：将缓存在内存中的索引数据写入内存segment，同时打开以使更改可以被查寻到，这些segment将放置在文件系统缓存中。
+    > refresh 默认每秒执行一次 （所以近实时）
+ - fsync：将文件系统缓存上的segment持久化到磁盘上
+ - commit point：对应一次fstnc调用
+ - translog： 在执行flush前所有修改会写到一个磁盘文件上，确保在commit前更新不会丢失
+---
+
+### Shard内部细节
+![Shard内部细节1](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/Shard内部细节1.png)
+---
+
+## ES搜索与集群管理
+---
+
+### ES搜索-Analyzer
+![倒排索引](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/倒排索引.png)
+---
+
+### ES搜索-Analyzer
+![Analyzer](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/Analyzer.png)
+ - Char Filters 输入预处理，过滤无效符号等
+ - Tokenizer 切词为term
+ - Token Filters 单复数，词性，同义词处理
+ - [analysis](https://www.elastic.co/guide/en/elasticsearch/reference/6.4/analysis.html) 默认为每个字段数据类型配置一个analysis （text->standerd analysis）
+---
+
+![爬取分析](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/爬取分析.png)
+---
+
+#### 自定义Analyzer 演示
+ - 创建ip字段。standerd analysis 无法分割 “.”  查询192无法查寻到
+ - 自定义 ， 给索引做设置
+
+```code
+            "my_analyzer": {  命名
+				"type": "custum",   表示自定义
+				"tokenizer": "standard", 切分方式
+				"filter": [ 配置的多个过滤器
+					"word_delimiter"
+					]
+			}
+```
+ - 测试analyze  使用 standrd  和 my_analyzer两种
+ - 使用analyzer 结合创建mapping时指定。然后search
+---
+创建analyze
+![自定义analyzer](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/%E8%87%AA%E5%AE%9A%E4%B9%89abalyzer.png)
+
+---
+
+### 索引Mapping
+ - 作用： 类似于数据库的表结构，以JSON格式定义了索引中的数据结构，主要是索引包含那些字段以及每个字段的类型
+ - 设置方式： ES默认是在建索引时动态判断字段的属性，也可以在索引时手动设置，在设定后可以动态怎加字段，但是不能动态更新已有字段的属性（相当于要重新做索引了）
+ - [ES提供如下字段类型：](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-types.html)
+ - 可以自定义字段的属性
+---
+
+### ES查询语法
+
+![ES查询](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/ES查询.png)
+ - 多种方式 http，es api，spring data api
+ - Query: 文档有多符合查询条件（按照相关度排序）
+ - Filter： 文档是否符合条件（按照条件过滤，不参与相关度计算，结果可以缓存）
+ - Sort： 默认按照相关度排序（_score字段）
+ - 查询语法：[query-dsl.html](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl.html)
+---
+
+### ES搜索- 聚合查询
+ - 功能：实现类似SQL:
+    ```code
+      select * count(*),sum()...from table where ... group by field1,field2
+    ```
+ - 两个关键概念：
+    - 桶（Buckets）：满足特定条件的文档的集合
+    - 指标（Metrics）： 对桶内的文档进行统计计算
+ - postman举例子
+---
+
+### 集群网络结构
+ - 使用完全连接的网络拓扑结构
+ - Node启动的时候使用单播连接其他节点，并发送多播消息
+ - 节点之间的底层通信基于TCP，按照功能（重要程度）划分为如下channel（如果有一个channel关闭，其他channel也会被关闭，从而导致节点下线-稳定的网络环境很重要）：
+    - Recovery： 索引恢复
+    - Bulk： 创建索引
+    - Rep： 复制
+    - State： 集群状态
+    - Ping： 节点发现
+ - 底层基于netty实现
+---
+
+### Master节点选举
+ - ES提供四种实现：
+    - Azure Classic Discovery（云环境）
+    - EC2 Discovery
+    - Google Compute Engine Discovery
+    - Zen Discovery(默认)
+ - ZenDiscovery步骤（基于bully算法）：
+    1. 每个节点计算所知的最小节点id并选举此节点为master
+    2. 如果一个节点收到足够的投票并且自己选举了自己为master，则此节点被选举为master，”足够“的投票数量由quorum参数设定，一般设置为半数以上以避免脑裂
+ - Paxos/Zookeeper
+---
+
+### 内存管理
+![内存管理](https://raw.githubusercontent.com/leslie777/PhotosBed/master/ElasticSearch/内存管理.png)
+ - Field Cache： 用于某个字段的排序，脚本，聚合技术等，内存结构是一个documentid到field的map。如果数据、查询量比较大，不做设置的话，可能吃掉所有内存。
+ - Filter Cache：
+ - Index Segment： 索引flush之前在内存中
+ - 创建索引的时候先将document缓存在内存中，满足一定条件在合并segment并flush到磁盘，故可能小号比较多的内存
+---
+
+### 监控
+ 监控对象：
+ - Node节点资源情况：CPU，内存，JVM
+ - 集群情况： 状态(红黄绿) ，索引，切片分布等
+
+ 方案：
+ - ES rest API [127.0.0.1:9200/_cat](127.0.0.1:9200/_cat)
+ - ES自带图形健康： X-Pack（基于kibana）
+ - 第三方腿型监控工具： Bigdesk，elasticsearch-head等
+---
+
+### 增量与全量索引
+
+索引类型 | 方案 | 优劣
+:--:|:--:|:--:
+增量 | 根据数据更新时间|简单： 依赖数据库
+增量 | 根据消息机制|实时性高：依赖消息系统，可能只能部分更新
+全量 | 单台机器全量，不切换索引|简单：适合小数据量应用
+全量 | 多台并行同步（自己实现），不切换索引|缩短重建时间，实现稍复杂
+全量 | 多台并行同步（基于第三方工具如elasticsearch-hadoop）,不切换索引|实现简单，依赖数据源
+全量 | 全量时切换索引： index-aliases.html|保持索引与查询的独立性
+---
+
+## 经验分享
+---
+
+### 使用场景
+ 适合场景：
+ - 全文检索引擎（日志搜索，全站搜索等）： 以query为主
+ - NoSql数据库（宽表（多字段 稀疏性数据）查询，分担数据库查询压力（读写分离））： 以filter为主
+
+ 不适用场景（交易等强事务性）：
+ - 强实时性查询
+ - 联合查询 [wiki-join](http://wiki.yonghuivip.com/pages/viewpage.action?pageId=4206180)
+ - 强事务性
+ - 高健壮性
+---
+
+### 经验分享
+ 索引：
+ 1. 使用bulk API创建索引以提高索引速度
+ 2. 在索引大量数据的时候（比如重建索引），将refresh暂时关闭： refresh interval:-1 以提高索引速度
+ 3. 禁用_all 字段：ES默认会为每个文档增加一个_all字段，此字段会为文档中的所有字段建立索引。mapping设置API进行设置： "_all":{"enabled"：false}
+ 4. 通过将副本数设置为0可以提高索引速度：index.number_of_replicas:0 在创建doc的时候如果需要创建副本，则在每个副本分片上都需要进行一次解析过程。所以。创建完成后再调整副本数，则只需要拷贝解析后的索引数据
+---
+
+查询：
+ 1.  针对单次写入不做更新的索引（比如日志数据），在索引完数据后调用optimize方法，将segment数量设置为1： localhost：9200/index/_optimize?max_num_segments=1
+ 2.  在查询时指定超时时间，以避免由于ES集群故障影响上层应用：/_search?timeout=10ms
+ 3.  在查询时指定一个会话/用户相关的字段，以避免Bouncing Results问题(同得分字段乱序)： search?preference=SESSINOID
+---
+
+### 集群相关
+ - elasticsearch.yml配置：
+    - indices.fielddata.cache.size:20% -设置field cache内存占用比例
+    - discovery.zen.ping_timeout:5s -- 以提高节点发现的超时时间
+    - bootstrap.memory_lock:ture ---不适用交换区 内存
+    - [打开slow query设置](https://www.elastic.co/guide/en/elasticsearch/reference/current/index-modules-slowlog.html)
+ - 针对搜索请求量大的场景。通过压力测试预估所需的节点数量以及replicate shard的数量
+ - 针对每种类型的查询进行single thread测试，以对索引mapping设置以及查询语句进行调优
+
+ </textarea>
+    <script src="https://remarkjs.com/downloads/remark-latest.min.js">
+    </script>
+    <script>
+      var slideshow = remark.create();
+    </script>
+  </body>
+</html> 

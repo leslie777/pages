@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>JVM</title>
+    <meta charset="utf-8">
+    <style>
+      @import url(https://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
+      @import url(https://fonts.googleapis.com/css?family=Droid+Serif:400,700,400italic);
+      @import url(https://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
+
+      body { font-family: 'Droid Serif'; }
+      h1, h2, h3 {
+        font-family: 'Yanone Kaffeesatz';
+        font-weight: normal;
+      }
+      .remark-code, .remark-inline-code { font-family: 'Ubuntu Mono'; }
+    </style>
+  </head>
+  <body>
+    <textarea id="source">
+
+class: center, middle
+# jvm
+
+---
+
+# 目录
+-----
+1. jvm基础
+
+2. JVM运行时数据区域
+
+3. JVM内存模型 JMM
+
+---
+## 1.jvm基础
+-----
+ - JVM
+
+ - JDK java Development kit
+
+ - JRE java runtime Environment
+
+---
+![whatsjvm](https://raw.githubusercontent.com/leslie777/PhotosBed/master/JVM/whatsjvm.png)
+---
+![jvmplatfrom](https://raw.githubusercontent.com/leslie777/PhotosBed/master/JVM/javaplatfrom.png)
+---
+#### 2. 运行时数据区域
+
+操作系统决定
+
+ - 数据流
+ - 指令流
+ - 控制流
+
+因此jvm模拟实现出运行时数据区
+
+---
+运行时数据区：
+> 程序运行时各种数据存放位置，类似冯诺依曼计算机模型
+
+程序计数器:
+> 指向当前线程正在执行的字节码指令的地址 行号
+
+虚拟机栈:
+> 存储当前线程运行方法时所需要的数据、指令、返回地址
+
+本地方法栈:
+> 本地方法native方法运行的栈,(HotSpot中和虚拟机栈合二为一)
+
+方法区:
+> 类信息、常量（1.7+有变化）、静态变量、JIT（1.7以前）
+
+堆(GC堆)：
+> 对象实例，数组；新生代(Eden,From,To),老年代
+
+[点一下玩一年](https://processon.com/apps/5a7e8696e4b0615ac054fb18)
+
+---
+#### 3. JVM内存模型 JMM
+
+[点一下玩一年](https://processon.com/apps/5a7e8696e4b0615ac054fb18)
+
+---
+
+
+
+ </textarea>
+    <script src="https://remarkjs.com/downloads/remark-latest.min.js">
+    </script>
+    <script>
+      var slideshow = remark.create();
+    </script>
+  </body>
+</html>
